@@ -41,6 +41,19 @@ jobs:
           brew list libimobiledevice >/dev/null 2>&1 || brew install libimobiledevice
           git clone --depth 1 https://github.com/pinauten/CryptexManager.git "$RUNNER_TEMP/CryptexManager"
           cd "$RUNNER_TEMP/CryptexManager"
+          swift package resolve
+          PLIST_WRAPPER=".build/checkouts/Swift_libimobiledevice/Sources/Swift_libimobiledevice/plist.swift"
+          if [[ ! -f "$PLIST_WRAPPER" ]]; then
+            echo "Could not find the Swift_libimobiledevice plist wrapper." >&2
+            exit 1
+          fi
+          # libplist 2.3 replaced the two format-specific free functions
+          # with plist_mem_free. The archived Swift wrapper predates that API.
+          sed -i '' \
+            -e 's/plist_to_xml_free(/plist_mem_free(/g' \
+            -e 's/plist_to_bin_free(/plist_mem_free(/g' \
+            "$PLIST_WRAPPER"
+          grep -n 'plist_mem_free' "$PLIST_WRAPPER"
           swift build -c release \
             -Xlinker "-L$(brew --prefix)/lib" \
             -Xcc "-I$(brew --prefix)/include"
