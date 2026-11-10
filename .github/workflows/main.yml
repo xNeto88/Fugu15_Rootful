@@ -77,6 +77,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-swiftpm-
 
+      - name: Patch Xcode 16 SwiftPM iOS sysroots
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for makefile in \
+            bootstrapFS/Makefile \
+            FuFuGuGu/Makefile \
+            MachOMerger/Makefile \
+            stashd/Makefile
+          do
+            sed -i '' \
+              's|-Xcc -Wno-incompatible-sysroot|-Xcc -isysroot -Xcc "$(SDK_PATH)" -Xcc -Wno-incompatible-sysroot|' \
+              "$makefile"
+            grep 'SWIFT_BUILD_ARGS=' "$makefile"
+          done
+
       - name: Build all payload components
         shell: bash
         run: |
