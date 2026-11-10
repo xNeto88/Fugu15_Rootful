@@ -33,20 +33,22 @@ jobs:
           swift --version
           xcrun --sdk iphoneos --show-sdk-version
 
-      - name: Locate CryptexManager
+      - name: Build open-source CryptexManager
         shell: bash
         run: |
           set -euo pipefail
-          TOOL="$(xcrun --find CryptexManager 2>/dev/null || true)"
-          if [[ -z "$TOOL" ]]; then
-            TOOL="$(find /Applications/Xcode.app -type f -name CryptexManager -perm +111 2>/dev/null | head -n 1 || true)"
-          fi
-          if [[ -z "$TOOL" ]]; then
-            echo "CryptexManager is not present in this GitHub runner's Xcode installation." >&2
-            exit 1
-          fi
-          echo "Found $TOOL"
-          echo "$(dirname "$TOOL")" >> "$GITHUB_PATH"
+          exec > >(tee -a build.log) 2>&1
+          brew list libimobiledevice >/dev/null 2>&1 || brew install libimobiledevice
+          git clone --depth 1 https://github.com/pinauten/CryptexManager.git "$RUNNER_TEMP/CryptexManager"
+          cd "$RUNNER_TEMP/CryptexManager"
+          swift build -c release \
+            -Xlinker "-L$(brew --prefix)/lib" \
+            -Xcc "-I$(brew --prefix)/include"
+          mkdir -p "$RUNNER_TEMP/fugu-tools"
+          cp .build/release/CryptexManager "$RUNNER_TEMP/fugu-tools/CryptexManager"
+          chmod +x "$RUNNER_TEMP/fugu-tools/CryptexManager"
+          echo "$RUNNER_TEMP/fugu-tools" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/fugu-tools/CryptexManager" 2>&1 | head -n 20 || true
 
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -66,7 +68,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          make tipa 2>&1 | tee build.log
+          make tipa 2>&1 | tee -a build.log
 
       - name: Package artifacts
         if: success()
