@@ -1,0 +1,97 @@
+name: Build Fugu15 Rootful
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fugu15-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sw_vers
+          xcodebuild -version
+          swift --version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Locate CryptexManager
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOL="$(xcrun --find CryptexManager 2>/dev/null || true)"
+          if [[ -z "$TOOL" ]]; then
+            TOOL="$(find /Applications/Xcode.app -type f -name CryptexManager -perm +111 2>/dev/null | head -n 1 || true)"
+          fi
+          if [[ -z "$TOOL" ]]; then
+            echo "CryptexManager is not present in this GitHub runner's Xcode installation." >&2
+            exit 1
+          fi
+          echo "Found $TOOL"
+          echo "$(dirname "$TOOL")" >> "$GITHUB_PATH"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/org.swift.swiftpm
+            ~/Library/Caches/org.swift.swiftpm
+            bootstrapFS/.build/repositories
+            FuFuGuGu/.build/repositories
+            MachOMerger/.build/repositories
+            stashd/.build/repositories
+          key: ${{ runner.os }}-swiftpm-${{ hashFiles('**/Package.swift', '**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swiftpm-
+
+      - name: Build all payload components
+        shell: bash
+        run: |
+          set -o pipefail
+          make tipa 2>&1 | tee build.log
+
+      - name: Package artifacts
+        if: success()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          cp Fugu15.tipa dist/Fugu15_Rootful-unsigned.tipa
+          cp Fugu15/Fugu15.ipa dist/Fugu15_Rootful-unsigned.ipa
+          shasum -a 256 dist/* | tee dist/SHA256SUMS.txt
+
+      - name: Upload IPA and TIPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fugu15-Rootful-iPhone11Pro-iOS15.1
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fugu15-build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
